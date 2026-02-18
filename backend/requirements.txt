@@ -12,3 +12,6 @@ requests
 python-dotenv
 pytesseract
 Pillow
+alembic
+pandas
+openpyxl
