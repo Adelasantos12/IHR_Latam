@@ -1,37 +1,78 @@
+"use client";
 import Link from "next/link";
+import { motion } from "framer-motion";
+import { ArrowRight, BarChart2, UploadCloud, Globe, Lock } from "lucide-react";
 
 export default function Home() {
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center p-24 bg-gray-50">
-      <div className="z-10 max-w-5xl w-full items-center justify-between font-mono text-sm lg:flex">
-        <h1 className="text-4xl font-bold mb-8">IHR Compliance Dashboard</h1>
-      </div>
+    <div className="flex flex-col items-center justify-center min-h-[80vh] text-center space-y-12">
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5 }}
+        className="max-w-2xl mx-auto space-y-6"
+      >
+        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-50 text-blue-600 text-sm font-medium mb-4">
+          <Globe className="w-4 h-4" />
+          <span>IHR Compliance Monitor</span>
+        </div>
+        <h1 className="text-5xl md:text-6xl font-extrabold tracking-tight text-gray-900 leading-tight">
+          Analyze Global Health <br/>
+          <span className="text-blue-600">Regulations with AI</span>
+        </h1>
+        <p className="text-xl text-gray-500 max-w-lg mx-auto leading-relaxed">
+          Automated legal analysis for International Health Regulations compliance across the Americas using advanced RAG pipelines.
+        </p>
+      </motion.div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-8 w-full max-w-4xl">
-        <Link href="/dashboard" className="group rounded-lg border border-transparent px-5 py-4 transition-colors hover:border-gray-300 hover:bg-gray-100 hover:dark:border-neutral-700 hover:dark:bg-neutral-800/30">
-          <h2 className="mb-3 text-2xl font-semibold">
-            Public Dashboard{" "}
-            <span className="inline-block transition-transform group-hover:translate-x-1 motion-reduce:transform-none">
-              ->
-            </span>
-          </h2>
-          <p className="m-0 max-w-[30ch] text-sm opacity-50">
-            View compliance status and heatmaps.
-          </p>
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5, delay: 0.2 }}
+        className="grid grid-cols-1 md:grid-cols-2 gap-6 w-full max-w-4xl px-4"
+      >
+        <Link href="/dashboard" className="group relative overflow-hidden rounded-3xl bg-white border border-gray-100 p-8 shadow-xl shadow-gray-100/50 hover:shadow-2xl hover:shadow-blue-100/50 transition-all duration-300 transform hover:-translate-y-1">
+          <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+            <BarChart2 className="w-32 h-32 text-blue-600" />
+          </div>
+          <div className="relative z-10 flex flex-col h-full items-start text-left space-y-4">
+            <div className="p-3 bg-blue-50 rounded-xl text-blue-600 group-hover:bg-blue-600 group-hover:text-white transition-colors">
+              <BarChart2 className="w-6 h-6" />
+            </div>
+            <div>
+              <h2 className="text-2xl font-bold text-gray-900 mb-2">Public Dashboard</h2>
+              <p className="text-gray-500 text-sm leading-relaxed">
+                Visualize compliance status across 20 countries with interactive heatmaps and detailed evidence tracking.
+              </p>
+            </div>
+            <div className="mt-auto flex items-center gap-2 text-blue-600 font-medium group-hover:translate-x-1 transition-transform">
+              <span>View Data</span>
+              <ArrowRight className="w-4 h-4" />
+            </div>
+          </div>
         </Link>
 
-        <Link href="/admin" className="group rounded-lg border border-transparent px-5 py-4 transition-colors hover:border-gray-300 hover:bg-gray-100 hover:dark:border-neutral-700 hover:dark:bg-neutral-800/30">
-          <h2 className="mb-3 text-2xl font-semibold">
-            Admin Panel{" "}
-            <span className="inline-block transition-transform group-hover:translate-x-1 motion-reduce:transform-none">
-              ->
-            </span>
-          </h2>
-          <p className="m-0 max-w-[30ch] text-sm opacity-50">
-            Upload laws and manage analysis.
-          </p>
+        <Link href="/admin" className="group relative overflow-hidden rounded-3xl bg-gray-900 border border-gray-800 p-8 shadow-xl shadow-gray-900/20 hover:shadow-2xl hover:shadow-gray-800/50 transition-all duration-300 transform hover:-translate-y-1">
+          <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+            <Lock className="w-32 h-32 text-gray-400" />
+          </div>
+          <div className="relative z-10 flex flex-col h-full items-start text-left space-y-4">
+            <div className="p-3 bg-gray-800 rounded-xl text-white group-hover:bg-white group-hover:text-gray-900 transition-colors">
+              <UploadCloud className="w-6 h-6" />
+            </div>
+            <div>
+              <h2 className="text-2xl font-bold text-white mb-2">Admin Panel</h2>
+              <p className="text-gray-400 text-sm leading-relaxed">
+                Securely upload legal documents (PDFs) and trigger AI-powered compliance analysis workflows.
+              </p>
+            </div>
+            <div className="mt-auto flex items-center gap-2 text-white font-medium group-hover:translate-x-1 transition-transform">
+              <span>Access Tools</span>
+              <ArrowRight className="w-4 h-4" />
+            </div>
+          </div>
         </Link>
-      </div>
-    </main>
+      </motion.div>
+    </div>
   );
 }
