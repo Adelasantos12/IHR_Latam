@@ -23,7 +23,7 @@ def test_endpoints():
     response = client.get("/")
     print(f"Response: {response.json()}")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "version": "1.0.0"}
+    assert response.json() == {"status": "ok", "version": "1.1.0"}
 
     # We can't easily test other endpoints without mocking SQLModel results extensively
     # but verify they are reachable (even if they fail due to mock session structure)
