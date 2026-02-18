@@ -1,10 +1,7 @@
 "use client";
-import { useState, useEffect } from 'react';
-import axios from 'axios';
-import { motion } from 'framer-motion';
-import { UploadCloud, FileText, Calendar, CheckCircle2, AlertCircle } from 'lucide-react';
-import Select from '../ui/Select';
-import clsx from 'clsx';
+
+import { useEffect, useState } from "react";
+import axios from "axios";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -13,239 +10,139 @@ interface Country {
   name: string;
 }
 
+interface ReviewItem {
+  id: number;
+  country_id: string;
+  obligation_id: string;
+  status: string;
+  confidence: number;
+  needs_review: boolean;
+  is_published: boolean;
+  notes?: string;
+}
+
 export default function AdminPage() {
   const [countries, setCountries] = useState<Country[]>([]);
-  const [selectedCountry, setSelectedCountry] = useState('');
-  const [lawTitle, setLawTitle] = useState('');
-  const [lawDate, setLawDate] = useState('');
+  const [reviewItems, setReviewItems] = useState<ReviewItem[]>([]);
+  const [selectedCountry, setSelectedCountry] = useState("");
+  const [title, setTitle] = useState("");
+  const [publicationDate, setPublicationDate] = useState("");
+  const [lastAmendmentDate, setLastAmendmentDate] = useState("");
+  const [url, setUrl] = useState("");
+  const [language, setLanguage] = useState("es");
+  const [normType, setNormType] = useState("");
+  const [sectorId, setSectorId] = useState("1");
+  const [sourceType, setSourceType] = useState("pdf");
   const [file, setFile] = useState<File | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
+  const [message, setMessage] = useState("");
 
   useEffect(() => {
     fetchCountries();
+    fetchReviewQueue();
   }, []);
 
   const fetchCountries = async () => {
-    try {
-      const res = await axios.get(`${API_URL}/countries`);
-      setCountries(res.data);
-    } catch (err) {
-      console.error("Error fetching countries:", err);
-      setMessage({ type: 'error', text: "Failed to load countries. Is the backend running?" });
-    }
+    const res = await axios.get(`${API_URL}/countries`);
+    setCountries(res.data || []);
   };
 
-  const handleUpload = async (e: React.FormEvent) => {
+  const fetchReviewQueue = async () => {
+    const res = await axios.get(`${API_URL}/audit/review-queue`);
+    setReviewItems(res.data.items || []);
+  };
+
+  const submitLaw = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedCountry || !file || !lawTitle) {
-      setMessage({ type: 'error', text: "Please fill all fields" });
+    if (!file || !selectedCountry || !title) {
+      setMessage("Completa país, título y archivo.");
       return;
     }
 
-    const formData = new FormData();
-    formData.append("country_id", selectedCountry);
-    formData.append("title", lawTitle);
-    formData.append("publication_date", lawDate);
-    formData.append("file", file);
+    const form = new FormData();
+    form.append("country_id", selectedCountry);
+    form.append("title", title);
+    form.append("publication_date", publicationDate);
+    form.append("last_amendment_date", lastAmendmentDate);
+    form.append("url", url);
+    form.append("language", language);
+    form.append("norm_type", normType);
+    form.append("sector_id", sectorId);
+    form.append("source_type", sourceType);
+    form.append("file", file);
 
-    setLoading(true);
-    setMessage(null);
-    try {
-      await axios.post(`${API_URL}/laws`, formData, {
-        headers: { "Content-Type": "multipart/form-data" }
-      });
-      setMessage({ type: 'success', text: "Law uploaded successfully!" });
-      setLawTitle('');
-      setFile(null);
-      // Reset file input value manually if needed
-      (document.getElementById('file-upload') as HTMLInputElement).value = '';
-    } catch (err) {
-      setMessage({ type: 'error', text: "Error uploading law. Check console for details." });
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
+    await axios.post(`${API_URL}/laws`, form, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+    setMessage("Ley cargada correctamente.");
   };
 
-  const handleAnalyze = async () => {
-    if (!selectedCountry) {
-        setMessage({ type: 'error', text: "Select a country first" });
-        return;
-    }
-    setLoading(true);
-    setMessage(null);
-    try {
-        await axios.post(`${API_URL}/analyze/${selectedCountry}`);
-        setMessage({ type: 'success', text: "Compliance analysis triggered! Results will appear shortly." });
-    } catch (err) {
-        setMessage({ type: 'error', text: "Error triggering analysis" });
-        console.error(err);
-    } finally {
-        setLoading(false);
-    }
+  const triggerAnalysis = async () => {
+    if (!selectedCountry) return;
+    await axios.post(`${API_URL}/analyze/${selectedCountry}`);
+    setMessage("Análisis disparado.");
+  };
+
+  const togglePublish = async (item: ReviewItem) => {
+    const form = new FormData();
+    form.append("is_published", String(!item.is_published));
+    form.append("needs_review", String(false));
+    await axios.post(`${API_URL}/audit/results/${item.id}`, form);
+    fetchReviewQueue();
   };
 
   return (
-    <div className="max-w-5xl mx-auto space-y-8">
-      <motion.div
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="flex justify-between items-center"
-      >
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900 tracking-tight">Admin Panel</h1>
-          <p className="text-gray-500 mt-2">Manage legal documents and trigger compliance checks.</p>
-        </div>
-      </motion.div>
+    <div className="space-y-8">
+      <h1 className="text-3xl font-bold">Admin privado</h1>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Upload Section */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1 }}
-          className="lg:col-span-2 bg-white rounded-2xl border border-gray-100 shadow-sm p-8"
-        >
-          <div className="flex items-center gap-3 mb-6">
-            <div className="p-2 bg-blue-50 rounded-lg text-blue-600">
-              <UploadCloud className="w-6 h-6" />
+      <form onSubmit={submitLaw} className="bg-white p-6 rounded-xl border space-y-4">
+        <h2 className="text-xl font-semibold">Subir ley + metadatos</h2>
+        <div className="grid md:grid-cols-2 gap-3">
+          <select value={selectedCountry} onChange={(e) => setSelectedCountry(e.target.value)} className="border rounded p-2">
+            <option value="">País</option>
+            {countries.map((c) => (
+              <option key={c.id} value={c.id}>{c.name} ({c.id})</option>
+            ))}
+          </select>
+          <input className="border rounded p-2" placeholder="Título" value={title} onChange={(e) => setTitle(e.target.value)} />
+          <input className="border rounded p-2" type="date" value={publicationDate} onChange={(e) => setPublicationDate(e.target.value)} />
+          <input className="border rounded p-2" type="date" value={lastAmendmentDate} onChange={(e) => setLastAmendmentDate(e.target.value)} />
+          <input className="border rounded p-2" placeholder="URL oficial" value={url} onChange={(e) => setUrl(e.target.value)} />
+          <select className="border rounded p-2" value={language} onChange={(e) => setLanguage(e.target.value)}>
+            <option value="es">ES</option>
+            <option value="pt">PT</option>
+            <option value="mixed">MIXED</option>
+          </select>
+          <input className="border rounded p-2" placeholder="Tipo de norma" value={normType} onChange={(e) => setNormType(e.target.value)} />
+          <input className="border rounded p-2" type="number" min={1} max={10} value={sectorId} onChange={(e) => setSectorId(e.target.value)} />
+          <select className="border rounded p-2" value={sourceType} onChange={(e) => setSourceType(e.target.value)}>
+            <option value="pdf">PDF</option>
+            <option value="html">HTML</option>
+            <option value="text">TEXT</option>
+          </select>
+          <input className="border rounded p-2" type="file" onChange={(e) => setFile(e.target.files?.[0] || null)} />
+        </div>
+        <div className="flex gap-2">
+          <button type="submit" className="bg-blue-600 text-white rounded px-4 py-2">Subir ley</button>
+          <button type="button" onClick={triggerAnalysis} className="bg-slate-800 text-white rounded px-4 py-2">Analizar país</button>
+        </div>
+        {message && <p className="text-sm text-slate-600">{message}</p>}
+      </form>
+
+      <section className="bg-white p-6 rounded-xl border space-y-3">
+        <h2 className="text-xl font-semibold">Revisión low-confidence</h2>
+        {reviewItems.length === 0 && <p className="text-sm text-slate-500">Sin pendientes.</p>}
+        {reviewItems.map((item) => (
+          <div key={item.id} className="border rounded p-3 flex items-center justify-between gap-4">
+            <div>
+              <p className="font-medium">{item.country_id} · {item.obligation_id}</p>
+              <p className="text-sm text-slate-600">status={item.status} · confidence={item.confidence.toFixed(2)}</p>
             </div>
-            <h2 className="text-xl font-semibold text-gray-900">Upload New Law</h2>
+            <button onClick={() => togglePublish(item)} className="rounded border px-3 py-1 text-sm">
+              {item.is_published ? "Despublicar" : "Publicar"}
+            </button>
           </div>
-
-          <form onSubmit={handleUpload} className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-700">Country</label>
-                <Select
-                    options={countries.map(c => ({ value: c.id, label: c.name }))}
-                    value={selectedCountry}
-                    onChange={setSelectedCountry}
-                    placeholder="Select Country..."
-                />
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-700">Publication Date</label>
-                <div className="relative">
-                    <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
-                    <input
-                      type="date"
-                      value={lawDate}
-                      onChange={(e) => setLawDate(e.target.value)}
-                      className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all"
-                    />
-                </div>
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-gray-700">Law Title</label>
-              <div className="relative">
-                <FileText className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
-                <input
-                  type="text"
-                  value={lawTitle}
-                  onChange={(e) => setLawTitle(e.target.value)}
-                  className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all"
-                  placeholder="e.g. Health Code 2020"
-                />
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-gray-700">PDF File</label>
-              <div className="relative border-2 border-dashed border-gray-200 rounded-xl p-8 hover:bg-gray-50 transition-colors text-center cursor-pointer group">
-                 <input
-                    id="file-upload"
-                    type="file"
-                    accept=".pdf"
-                    onChange={(e) => setFile(e.target.files?.[0] || null)}
-                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                 />
-                 <div className="pointer-events-none flex flex-col items-center gap-2">
-                    <UploadCloud className="w-8 h-8 text-gray-400 group-hover:text-blue-500 transition-colors" />
-                    <p className="text-sm text-gray-500 font-medium">
-                        {file ? file.name : "Click to select or drag PDF here"}
-                    </p>
-                    <p className="text-xs text-gray-400">PDF up to 10MB</p>
-                 </div>
-              </div>
-            </div>
-
-            <div className="pt-4 flex justify-end">
-                <button
-                    type="submit"
-                    disabled={loading}
-                    className="bg-blue-600 text-white px-6 py-3 rounded-lg font-medium shadow-sm hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-95"
-                >
-                    {loading ? "Processing..." : "Upload Law"}
-                </button>
-            </div>
-          </form>
-        </motion.div>
-
-        {/* Actions Section */}
-        <div className="space-y-6">
-            <motion.div
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: 0.2 }}
-              className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6"
-            >
-                <div className="flex items-center gap-3 mb-4">
-                    <div className="p-2 bg-purple-50 rounded-lg text-purple-600">
-                    <CheckCircle2 className="w-5 h-5" />
-                    </div>
-                    <h2 className="text-lg font-semibold text-gray-900">Run Analysis</h2>
-                </div>
-
-                <p className="text-sm text-gray-500 mb-6 leading-relaxed">
-                    Trigger the AI analysis pipeline for a specific country. This will process all uploaded laws against the 19 IHR obligations.
-                </p>
-
-                <div className="space-y-4">
-                    <Select
-                        options={countries.map(c => ({ value: c.id, label: c.name }))}
-                        value={selectedCountry}
-                        onChange={setSelectedCountry}
-                        placeholder="Select Country to Analyze..."
-                    />
-
-                    <button
-                        onClick={handleAnalyze}
-                        disabled={loading || !selectedCountry}
-                        className="w-full bg-gray-900 text-white px-4 py-3 rounded-lg font-medium hover:bg-black disabled:opacity-50 transition-all active:scale-95 flex items-center justify-center gap-2"
-                    >
-                        {loading ? (
-                            <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                        ) : (
-                            "Start Analysis"
-                        )}
-                    </button>
-                </div>
-            </motion.div>
-
-            {/* Status Message */}
-            {message && (
-                <motion.div
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className={clsx(
-                        "rounded-xl p-4 border flex items-start gap-3",
-                        message.type === 'success' ? "bg-green-50 border-green-100 text-green-800" : "bg-red-50 border-red-100 text-red-800"
-                    )}
-                >
-                    {message.type === 'success' ? <CheckCircle2 className="w-5 h-5 mt-0.5" /> : <AlertCircle className="w-5 h-5 mt-0.5" />}
-                    <div>
-                        <p className="font-medium text-sm">{message.type === 'success' ? "Success" : "Error"}</p>
-                        <p className="text-sm opacity-90">{message.text}</p>
-                    </div>
-                </motion.div>
-            )}
-        </div>
-      </div>
+        ))}
+      </section>
     </div>
   );
 }

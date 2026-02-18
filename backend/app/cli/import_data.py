@@ -11,9 +11,9 @@ from app.models import Authority, Country, Obligation
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
 
-LATAM_18_ISO = {
-    "ARG", "BOL", "BRA", "CHL", "COL", "CRI", "CUB", "DOM", "ECU",
-    "SLV", "GTM", "HND", "MEX", "NIC", "PAN", "PRY", "PER", "URY"
+EXPECTED_COUNTRY_ISO = {
+    "ARG", "BLZ", "BOL", "BRA", "CHL", "COL", "CRI", "ECU", "SLV", "GTM",
+    "GUY", "HND", "MEX", "NIC", "PAN", "PRY", "PER", "SUR", "URY", "VEN"
 }
 
 COUNTRY_ALIASES: Dict[str, str] = {
@@ -149,7 +149,7 @@ def import_authorities(path: Path) -> tuple[int, set[str]]:
 
         session.commit()
 
-    missing = LATAM_18_ISO.difference(found_isos)
+    missing = EXPECTED_COUNTRY_ISO.difference(found_isos)
     return upserted, missing
 
 
@@ -176,7 +176,7 @@ def main() -> None:
     logger.info("Imported authorities: %s", authority_count)
     if missing_countries:
         logger.warning(
-            "Authorities import finished with missing countries in LATAM-18 baseline: %s",
+            "Authorities import finished with missing countries in LATAM-20 baseline: %s",
             ", ".join(sorted(missing_countries)),
         )
 
