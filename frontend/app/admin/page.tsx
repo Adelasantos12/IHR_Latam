@@ -7,7 +7,7 @@ import { UploadCloud, FileText, CheckCircle, AlertCircle, Loader2, Download, Shi
 import { COUNTRIES } from "../countries";
 
 // Hardcoded backend URL as fallback if env var is missing
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://petanquetraining-backend.onrender.com";
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://petanquetraining-api.onrender.com";
 
 type ReviewItem = {
   id: number;

@@ -7,7 +7,7 @@ import { motion } from "framer-motion";
 import { ArrowRight, BarChart2, Globe, AlertCircle, CheckCircle, Clock } from "lucide-react";
 import { COUNTRIES } from "../countries";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://petanquetraining-backend.onrender.com";
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://petanquetraining-api.onrender.com";
 
 type Result = {
   id: number;
