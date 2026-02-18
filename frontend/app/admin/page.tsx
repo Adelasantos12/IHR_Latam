@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import axios from "axios";
+import { COUNTRIES } from "../countries";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || (typeof window !== "undefined" ? window.location.origin : "http://localhost:8000");
 
@@ -36,6 +37,11 @@ export default function AdminPage() {
   const [file, setFile] = useState<File | null>(null);
   const [message, setMessage] = useState("");
 
+  // Bulk Upload State
+  const [csvFile, setCsvFile] = useState<File | null>(null);
+  const [bulkProgress, setBulkProgress] = useState("");
+  const [isUploading, setIsUploading] = useState(false);
+
   useEffect(() => {
     fetchCountries();
     fetchReviewQueue();
@@ -44,11 +50,17 @@ export default function AdminPage() {
   const fetchCountries = async () => {
     try {
       const res = await axios.get(`${API_URL}/countries`);
-      setCountries(res.data || []);
+      if (res.data && res.data.length > 0) {
+        setCountries(res.data);
+      } else {
+        // Fallback to local data if API returns empty
+        console.warn("API returned empty country list, using fallback.");
+        setCountries(COUNTRIES);
+      }
     } catch (error) {
       console.error("Error fetching countries", error);
-      setCountries([]);
-      setMessage("No se pudo cargar países. Configura NEXT_PUBLIC_API_URL al backend o usa mismo dominio con proxy.");
+      setCountries(COUNTRIES); // Fallback on error
+      setMessage("Usando lista local de países (API error).");
     }
   };
 
@@ -92,6 +104,61 @@ export default function AdminPage() {
     }
   };
 
+  const handleBulkUpload = async () => {
+    if (!csvFile) return;
+    setIsUploading(true);
+    setBulkProgress("Leyendo archivo...");
+
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      const text = e.target?.result as string;
+      const lines = text.split("\n");
+      // Expect header: country_id,title,url,sector_id
+      // Skip header
+      const rows = lines.slice(1).filter(line => line.trim() !== "");
+
+      let successCount = 0;
+      let failCount = 0;
+
+      for (const row of rows) {
+        const cols = row.split(",");
+        if (cols.length < 3) continue;
+
+        const [c_id, t_title, t_url, t_sector] = cols.map(s => s.trim());
+
+        // Basic validation
+        if (!c_id || !t_title || !t_url) continue;
+
+        const form = new FormData();
+        form.append("country_id", c_id);
+        form.append("title", t_title);
+        form.append("url", t_url);
+        form.append("sector_id", t_sector || "1");
+        form.append("source_type", "html"); // Assume URL source
+        // Dummy file needed if backend requires it? Backend model says file_path optional but endpoint has File(...) required?
+        // Check backend: file: UploadFile = File(...) is required.
+        // We need to send a dummy file or update backend.
+        // For now, create a dummy text file with the URL.
+        const dummyFile = new File([t_url], "url_reference.txt", { type: "text/plain" });
+        form.append("file", dummyFile);
+
+        try {
+          await axios.post(`${API_URL}/laws`, form, {
+            headers: { "Content-Type": "multipart/form-data" },
+          });
+          successCount++;
+          setBulkProgress(`Procesando: ${successCount} ok...`);
+        } catch (err) {
+          console.error(`Failed row: ${row}`, err);
+          failCount++;
+        }
+      }
+      setBulkProgress(`Finalizado: ${successCount} subidos, ${failCount} fallidos.`);
+      setIsUploading(false);
+    };
+    reader.readAsText(csvFile);
+  };
+
   const triggerAnalysis = async () => {
     if (!selectedCountry) return;
     try {
@@ -117,57 +184,111 @@ export default function AdminPage() {
   };
 
   return (
-    <div className="space-y-8">
-      <h1 className="text-3xl font-bold">Admin privado</h1>
+    <div className="space-y-8 max-w-5xl mx-auto py-8 px-4">
+      <h1 className="text-3xl font-bold text-gray-900">Panel de Administración</h1>
 
-      <form onSubmit={submitLaw} className="bg-white p-6 rounded-xl border space-y-4">
-        <h2 className="text-xl font-semibold">Subir ley + metadatos</h2>
-        <div className="grid md:grid-cols-2 gap-3">
-          <select value={selectedCountry} onChange={(e) => setSelectedCountry(e.target.value)} className="border rounded p-2">
-            <option value="">País</option>
-            {countries.map((c) => (
-              <option key={c.id} value={c.id}>{c.name} ({c.id})</option>
-            ))}
-          </select>
-          <input className="border rounded p-2" placeholder="Título" value={title} onChange={(e) => setTitle(e.target.value)} />
-          <input className="border rounded p-2" type="date" value={publicationDate} onChange={(e) => setPublicationDate(e.target.value)} />
-          <input className="border rounded p-2" type="date" value={lastAmendmentDate} onChange={(e) => setLastAmendmentDate(e.target.value)} />
-          <input className="border rounded p-2" placeholder="URL oficial" value={url} onChange={(e) => setUrl(e.target.value)} />
-          <select className="border rounded p-2" value={language} onChange={(e) => setLanguage(e.target.value)}>
-            <option value="es">ES</option>
-            <option value="pt">PT</option>
-            <option value="mixed">MIXED</option>
-          </select>
-          <input className="border rounded p-2" placeholder="Tipo de norma" value={normType} onChange={(e) => setNormType(e.target.value)} />
-          <input className="border rounded p-2" type="number" min={1} max={10} value={sectorId} onChange={(e) => setSectorId(e.target.value)} />
-          <select className="border rounded p-2" value={sourceType} onChange={(e) => setSourceType(e.target.value)}>
-            <option value="pdf">PDF</option>
-            <option value="html">HTML</option>
-            <option value="text">TEXT</option>
-          </select>
-          <input className="border rounded p-2" type="file" onChange={(e) => setFile(e.target.files?.[0] || null)} />
-        </div>
-        <div className="flex gap-2">
-          <button type="submit" className="bg-blue-600 text-white rounded px-4 py-2">Subir ley</button>
-          <button type="button" onClick={triggerAnalysis} className="bg-slate-800 text-white rounded px-4 py-2">Analizar país</button>
-        </div>
-        {message && <p className="text-sm text-slate-600">{message}</p>}
-      </form>
-
-      <section className="bg-white p-6 rounded-xl border space-y-3">
-        <h2 className="text-xl font-semibold">Revisión low-confidence</h2>
-        {reviewItems.length === 0 && <p className="text-sm text-slate-500">Sin pendientes.</p>}
-        {reviewItems.map((item) => (
-          <div key={item.id} className="border rounded p-3 flex items-center justify-between gap-4">
-            <div>
-              <p className="font-medium">{item.country_id} · {item.obligation_id}</p>
-              <p className="text-sm text-slate-600">status={item.status} · confidence={item.confidence.toFixed(2)}</p>
+      <div className="grid md:grid-cols-2 gap-8">
+        {/* Single Upload Form */}
+        <form onSubmit={submitLaw} className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm space-y-4">
+          <h2 className="text-xl font-semibold text-gray-800">Carga Individual</h2>
+          <div className="grid grid-cols-1 gap-3">
+            <select value={selectedCountry} onChange={(e) => setSelectedCountry(e.target.value)} className="border rounded-lg p-2.5 bg-gray-50 focus:ring-2 focus:ring-blue-500 outline-none transition-all">
+              <option value="">Seleccionar País</option>
+              {countries.map((c) => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+            <input className="border rounded-lg p-2.5" placeholder="Título de la norma" value={title} onChange={(e) => setTitle(e.target.value)} />
+            <div className="grid grid-cols-2 gap-2">
+              <input className="border rounded-lg p-2.5" type="date" value={publicationDate} onChange={(e) => setPublicationDate(e.target.value)} />
+              <input className="border rounded-lg p-2.5" type="date" value={lastAmendmentDate} onChange={(e) => setLastAmendmentDate(e.target.value)} />
             </div>
-            <button onClick={() => togglePublish(item)} className="rounded border px-3 py-1 text-sm">
-              {item.is_published ? "Despublicar" : "Publicar"}
-            </button>
+            <input className="border rounded-lg p-2.5" placeholder="URL oficial (opcional)" value={url} onChange={(e) => setUrl(e.target.value)} />
+            <div className="grid grid-cols-2 gap-2">
+              <select className="border rounded-lg p-2.5" value={language} onChange={(e) => setLanguage(e.target.value)}>
+                <option value="es">Español</option>
+                <option value="pt">Portugués</option>
+                <option value="mixed">Mixto</option>
+              </select>
+              <input className="border rounded-lg p-2.5" type="number" min={1} max={10} placeholder="Sector ID" value={sectorId} onChange={(e) => setSectorId(e.target.value)} />
+            </div>
+            <input className="border rounded-lg p-2.5 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" type="file" onChange={(e) => setFile(e.target.files?.[0] || null)} />
           </div>
-        ))}
+          <div className="flex gap-3 pt-2">
+            <button type="submit" className="flex-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg px-4 py-2 font-medium transition-colors">Subir Ley</button>
+            <button type="button" onClick={triggerAnalysis} className="flex-1 bg-gray-800 hover:bg-gray-900 text-white rounded-lg px-4 py-2 font-medium transition-colors">Analizar País</button>
+          </div>
+          {message && <p className="text-sm text-blue-600 bg-blue-50 p-2 rounded">{message}</p>}
+        </form>
+
+        {/* Bulk Upload Section */}
+        <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm space-y-4">
+          <h2 className="text-xl font-semibold text-gray-800">Carga Masiva (CSV)</h2>
+          <p className="text-sm text-gray-500">Sube un archivo .csv con las columnas: <code>country_id, title, url, sector_id</code></p>
+
+          <div className="border-2 border-dashed border-gray-300 rounded-xl p-8 flex flex-col items-center justify-center text-center hover:bg-gray-50 transition-colors">
+            <input
+              type="file"
+              accept=".csv"
+              onChange={(e) => setCsvFile(e.target.files?.[0] || null)}
+              className="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-violet-50 file:text-violet-700 hover:file:bg-violet-100"
+            />
+          </div>
+
+          {csvFile && (
+            <div className="space-y-2">
+              <p className="text-sm font-medium">Archivo: {csvFile.name}</p>
+              <button
+                onClick={handleBulkUpload}
+                disabled={isUploading}
+                className={`w-full rounded-lg px-4 py-2 font-medium text-white transition-colors ${isUploading ? 'bg-gray-400' : 'bg-emerald-600 hover:bg-emerald-700'}`}
+              >
+                {isUploading ? "Procesando..." : "Iniciar Carga Masiva"}
+              </button>
+            </div>
+          )}
+
+          {bulkProgress && (
+            <div className="p-3 bg-gray-100 rounded text-sm font-mono text-gray-700 whitespace-pre-wrap">
+              {bulkProgress}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <section className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm space-y-4">
+        <h2 className="text-xl font-semibold text-gray-800">Cola de Revisión (Low Confidence)</h2>
+        {reviewItems.length === 0 ? (
+          <div className="text-center py-8 text-gray-500 bg-gray-50 rounded-lg">
+            <p>No hay items pendientes de revisión.</p>
+          </div>
+        ) : (
+          <div className="grid gap-4">
+            {reviewItems.map((item) => (
+              <div key={item.id} className="border border-gray-200 rounded-lg p-4 flex items-center justify-between hover:bg-gray-50 transition-colors">
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="font-bold text-gray-900">{item.country_id}</span>
+                    <span className="text-gray-400">·</span>
+                    <span className="font-medium text-gray-700">{item.obligation_id}</span>
+                  </div>
+                  <div className="text-sm space-x-3">
+                    <span className={`px-2 py-0.5 rounded text-xs font-medium ${item.status === 'Yes' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                      {item.status}
+                    </span>
+                    <span className="text-gray-500">Confianza: {(item.confidence * 100).toFixed(0)}%</span>
+                  </div>
+                </div>
+                <button
+                  onClick={() => togglePublish(item)}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${item.is_published ? 'bg-red-50 text-red-600 hover:bg-red-100' : 'bg-blue-50 text-blue-600 hover:bg-blue-100'}`}
+                >
+                  {item.is_published ? "Despublicar" : "Aprobar & Publicar"}
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
       </section>
     </div>
   );
