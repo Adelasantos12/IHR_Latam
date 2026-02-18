@@ -26,6 +26,10 @@ alembic upgrade head
 - `data/2IHR_Formal_Law_Matrix.xlsx`
 - `data/sanitary_authority.xlsx`
 
+> Nota: **no es obligatorio commitear los XLS al repositorio**.
+> En producción (Railway/Render) puedes montar/descargar esos archivos en `data/` al iniciar o ejecutar los imports desde un job/release command.
+> Si no se cargan XLS, igual deben aparecer países porque se siembran en startup.
+
 ## 4) Imports CLI
 
 ```bash

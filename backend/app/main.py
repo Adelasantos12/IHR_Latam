@@ -10,9 +10,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from sqlmodel import Session, select
 
-from app.database import get_session, init_db
+from app.database import engine, get_session, init_db
 from app.models import AnalysisResult, Authority, ComplianceStatus, Country, Law, Obligation
 from app.worker import analyze_country_task, ingest_law_task
+from app.seed_data import COUNTRIES
 
 app = FastAPI(title="IHR Compliance Analyzer")
 
@@ -28,6 +29,18 @@ app.add_middleware(
 @app.on_event("startup")
 def on_startup():
     init_db()
+    seed_countries_if_needed()
+
+
+def seed_countries_if_needed() -> None:
+    with Session(engine) as session:
+        existing = session.exec(select(Country)).first()
+        if existing:
+            return
+        for c in COUNTRIES:
+            session.add(Country(id=c["id"], name=c["name"]))
+        session.commit()
+
 
 
 @app.get("/")

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import axios from "axios";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_URL = process.env.NEXT_PUBLIC_API_URL || (typeof window !== "undefined" ? window.location.origin : "http://localhost:8000");
 
 interface Country {
   id: string;
@@ -42,13 +42,24 @@ export default function AdminPage() {
   }, []);
 
   const fetchCountries = async () => {
-    const res = await axios.get(`${API_URL}/countries`);
-    setCountries(res.data || []);
+    try {
+      const res = await axios.get(`${API_URL}/countries`);
+      setCountries(res.data || []);
+    } catch (error) {
+      console.error("Error fetching countries", error);
+      setCountries([]);
+      setMessage("No se pudo cargar países. Configura NEXT_PUBLIC_API_URL al backend o usa mismo dominio con proxy.");
+    }
   };
 
   const fetchReviewQueue = async () => {
-    const res = await axios.get(`${API_URL}/audit/review-queue`);
-    setReviewItems(res.data.items || []);
+    try {
+      const res = await axios.get(`${API_URL}/audit/review-queue`);
+      setReviewItems(res.data.items || []);
+    } catch (error) {
+      console.error("Error fetching review queue", error);
+      setReviewItems([]);
+    }
   };
 
   const submitLaw = async (e: React.FormEvent) => {
@@ -70,24 +81,39 @@ export default function AdminPage() {
     form.append("source_type", sourceType);
     form.append("file", file);
 
-    await axios.post(`${API_URL}/laws`, form, {
-      headers: { "Content-Type": "multipart/form-data" },
-    });
-    setMessage("Ley cargada correctamente.");
+    try {
+      await axios.post(`${API_URL}/laws`, form, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      setMessage("Ley cargada correctamente.");
+    } catch (error) {
+      console.error("Error uploading law", error);
+      setMessage("No se pudo subir la ley. Revisa conexión backend/CORS.");
+    }
   };
 
   const triggerAnalysis = async () => {
     if (!selectedCountry) return;
-    await axios.post(`${API_URL}/analyze/${selectedCountry}`);
-    setMessage("Análisis disparado.");
+    try {
+      await axios.post(`${API_URL}/analyze/${selectedCountry}`);
+      setMessage("Análisis disparado.");
+    } catch (error) {
+      console.error("Error triggering analysis", error);
+      setMessage("No se pudo disparar análisis.");
+    }
   };
 
   const togglePublish = async (item: ReviewItem) => {
     const form = new FormData();
     form.append("is_published", String(!item.is_published));
     form.append("needs_review", String(false));
-    await axios.post(`${API_URL}/audit/results/${item.id}`, form);
-    fetchReviewQueue();
+    try {
+      await axios.post(`${API_URL}/audit/results/${item.id}`, form);
+      fetchReviewQueue();
+    } catch (error) {
+      console.error("Error updating audit result", error);
+      setMessage("No se pudo actualizar resultado de auditoría.");
+    }
   };
 
   return (
