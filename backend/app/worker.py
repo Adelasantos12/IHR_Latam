@@ -15,6 +15,19 @@ celery = Celery(__name__)
 celery.conf.broker_url = os.environ.get("REDIS_URL", "redis://localhost:6379")
 celery.conf.result_backend = os.environ.get("REDIS_URL", "redis://localhost:6379")
 
+
+def normalize_status(raw_status):
+    value = str(raw_status or "").strip().lower()
+    mapping = {
+        "si": ComplianceStatus.YES,
+        "yes": ComplianceStatus.YES,
+        "parcial": ComplianceStatus.PARTIAL,
+        "partial": ComplianceStatus.PARTIAL,
+        "no": ComplianceStatus.NO,
+    }
+    return mapping.get(value, ComplianceStatus.UNKNOWN)
+
+
 @celery.task(name="ingest_law")
 def ingest_law_task(law_id: int):
     logger.info(f"Starting ingestion for law_id: {law_id}")
@@ -116,7 +129,7 @@ def analyze_country_task(country_id: str):
                     }
                 else:
                     # 2. Analyze with LLM
-                    analysis_result = analyze_obligation(obligation, retrieved_chunks)
+                    analysis_result = analyze_obligation(obligation, retrieved_chunks, country=country_id)
 
                 # 3. Save Result
                 # Check if result exists
@@ -127,7 +140,7 @@ def analyze_country_task(country_id: str):
                 ).first()
 
                 if existing_result:
-                    existing_result.status = analysis_result.get("status", "Unknown")
+                    existing_result.status = normalize_status(analysis_result.get("status"))
                     existing_result.confidence = analysis_result.get("confidence", 0.0)
                     existing_result.evidence = analysis_result.get("evidence", [])
                     existing_result.missing_info = analysis_result.get("missing", [])
@@ -137,7 +150,7 @@ def analyze_country_task(country_id: str):
                     new_result = AnalysisResult(
                         country_id=country_id,
                         obligation_id=obligation.id,
-                        status=analysis_result.get("status", "Unknown"),
+                        status=normalize_status(analysis_result.get("status")),
                         confidence=analysis_result.get("confidence", 0.0),
                         evidence=analysis_result.get("evidence", []),
                         missing_info=analysis_result.get("missing", []),

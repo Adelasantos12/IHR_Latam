@@ -1,66 +1,78 @@
 # IHR Compliance Analyzer
 
-This project is a RAG-based tool to analyze national laws against International Health Regulations (IHR) obligations. It processes legal documents (PDFs), extracts text, and uses an LLM to determine compliance status for 19 specific IHR obligations across 20 Latin American countries.
+This repository is a baseline implementation of an IHR legal-compliance platform with FastAPI + Postgres/pgvector + Redis/Celery + Next.js.
 
 ## Features
 
-- **Document Ingestion**: Upload PDF laws, extract text (with OCR fallback logic), and generate embeddings.
-- **Compliance Analysis**: Automated "Judge" using LLM (GPT-4) to evaluate laws against IHR obligations.
-- **Dashboard**: Heatmap visualization of compliance status (Yes/Partial/No) per country and obligation.
-- **Evidence Tracking**: Citations (Article, Quote) and confidence scores for every assessment.
+- **Document ingestion**: Upload PDF laws, extract text, chunk, and embed.
+- **Compliance analysis**: LLM-based evaluator per obligation with evidence payloads.
+- **Admin/Public UI**: `/admin` upload flow and public compliance dashboard.
+- **Queue architecture**: Redis + Celery workers for background ingestion/analysis.
+- **Migrations**: Alembic migration scaffold included under `backend/alembic`.
+- **CLI imports**:
+  - obligations matrix (`2IHR_Formal_Law_Matrix.xlsx`) → `obligation`
+  - sanitary authorities (`sanitary_authority.xlsx`) → `authority`
 
-## Tech Stack
+## Setup
 
-- **Backend**: FastAPI (Python), SQLModel, Celery (Workers).
-- **Database**: PostgreSQL with `pgvector` extension.
-- **Vector Store**: Embeddings stored in Postgres.
-- **Queue**: Redis + Celery.
-- **Frontend**: Next.js (React), TailwindCSS.
-- **LLM**: OpenAI API.
+```bash
+docker compose up --build
+```
 
-## Prerequisites
+Services:
+- Frontend: http://localhost:3000
+- Backend docs: http://localhost:8000/docs
 
-- Docker & Docker Compose
-- OpenAI API Key
+## Data files (required)
 
-## Setup & Run
+Store source files under `data/` in the repository root:
 
-1. **Clone the repository**
+- `data/2IHR_Formal_Law_Matrix.xlsx`
+- `data/sanitary_authority.xlsx`
 
-2. **Set Environment Variables**
-   Create a `.env` file in the root (optional, or pass inline):
-   ```bash
-   export OPENAI_API_KEY=your_api_key_here
-   ```
+## Run imports
 
-3. **Start Services**
-   ```bash
-   docker compose up --build
-   ```
+```bash
+cd backend
+python -m app.cli.import_data \
+  --obligations ../data/2IHR_Formal_Law_Matrix.xlsx \
+  --authorities ../data/sanitary_authority.xlsx
+```
 
-4. **Access the Application**
-   - **Frontend**: [http://localhost:3000](http://localhost:3000)
-   - **Backend API**: [http://localhost:8000/docs](http://localhost:8000/docs)
+Behavior for authorities import:
+- Upserts rows into `authority` table.
+- Uses a LATAM-18 baseline.
+- If the Excel has only 17 countries, it logs a **warning** listing missing country/countries and **does not break**.
 
-## Usage Workflow
+## Migrations (Alembic)
 
-1. Go to **Admin Panel** (`/admin`).
-2. Select a **Country** (e.g., Argentina).
-3. Upload a **Law** (PDF file).
-   - The system will process, chunk, and embed the text in the background.
-4. Click **Trigger Compliance Analysis**.
-   - The worker will retrieve relevant chunks for each of the 19 obligations and assess compliance.
-5. Go to **Public Dashboard** (`/dashboard`) to view the heatmap.
-6. Click on a country name to view detailed evidence and gaps.
+```bash
+cd backend
+alembic upgrade head
+```
 
-## Directory Structure
+## Objective-fit quick assessment
 
-- `backend/`: FastAPI application and Celery worker.
-- `frontend/`: Next.js application.
-- `docker-compose.yml` service orchestration.
+Current status against requested scope:
 
-## Data Seeding
+- ✅ Docker stack with backend + db(pgvector) + redis + worker + frontend.
+- ✅ Alembic migration scaffold present.
+- ✅ CLI imports for obligations + authorities.
+- ⚠️ Admin UI exists but metadata fields are still partial (country/title/date/url + file only).
+- ⚠️ Pipeline has extraction/chunk/embedding/retrieval + judge call, but no explicit anti-hallucination validator layer yet.
+- ⚠️ Public dashboard exists but does not yet fully expose all requested analytics (sector coverage, CSV export, obligation page).
+- ⚠️ Audit UX (low-confidence review + publish toggle) missing.
+- ⚠️ Documentation still needs explicit methodology and limitations docs.
 
-On startup, the application automatically seeds:
-- 20 Latin American Countries.
-- 19 IHR Obligations (definitions, normative content, indicators).
+## Judge prompt template
+
+A strict ES/PT JSON prompt template is included at:
+
+- `backend/app/services/judge_prompt_template.txt`
+
+It enforces:
+- no hallucinations
+- strict JSON output
+- status `no|parcial|si`
+- required traceable evidence
+- no `si` without explicit legal basis.

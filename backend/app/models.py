@@ -17,6 +17,7 @@ class Country(SQLModel, table=True):
 
     laws: List["Law"] = Relationship(back_populates="country")
     analysis_results: List["AnalysisResult"] = Relationship(back_populates="country")
+    authorities: List["Authority"] = Relationship(back_populates="country")
 
 class Obligation(SQLModel, table=True):
     id: str = Field(primary_key=True)  # e.g., IHR_Art04_NFP_Designation
@@ -64,3 +65,14 @@ class AnalysisResult(SQLModel, table=True):
 
     country: Country = Relationship(back_populates="analysis_results")
     obligation: Obligation = Relationship(back_populates="analysis_results")
+
+
+class Authority(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    country_id: str = Field(foreign_key="country.id", unique=True, index=True)
+    authority_name: str
+    source_url: Optional[str] = None
+    notes: Optional[str] = None
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+    country: Country = Relationship(back_populates="authorities")
