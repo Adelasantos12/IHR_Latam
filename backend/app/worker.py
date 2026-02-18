@@ -1,7 +1,7 @@
 import logging
 import os
+from datetime import datetime
 
-from celery import Celery
 from sqlmodel import Session, select
 
 from app.database import engine
@@ -11,10 +11,6 @@ from app.services.ingestion import chunk_text, extract_text_from_pdf, get_embedd
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-celery = Celery(__name__)
-celery.conf.broker_url = os.environ.get("REDIS_URL", "redis://localhost:6379")
-celery.conf.result_backend = os.environ.get("REDIS_URL", "redis://localhost:6379")
 
 
 def normalize_status(raw_status):
@@ -52,14 +48,13 @@ def validate_analysis_payload(payload: dict) -> dict:
 
     status_after = str(normalized.get("status", "")).lower().strip()
     if "score" not in normalized:
-        normalized["score"] = 1 if status_after in {"si", "yes"} else 0.5 if status_after in {"parcial", "partial"} else 0
+        normalized["score"] = 1.0 if status_after in {"si", "yes"} else 0.5 if status_after in {"parcial", "partial"} else 0.0
 
     normalized["needs_review"] = bool(normalized.get("confidence", 0) < 0.7)
     return normalized
 
 
-@celery.task(name="ingest_law")
-def ingest_law_task(law_id: int):
+def ingest_law_implementation(law_id: int):
     logger.info("Starting ingestion for law_id: %s", law_id)
     with Session(engine) as session:
         law = session.get(Law, law_id)
@@ -76,17 +71,23 @@ def ingest_law_task(law_id: int):
             law.full_text = text
             session.add(law)
             session.commit()
+            session.refresh(law)
         except Exception as exc:
             logger.error("Error extracting text: %s", exc)
             return f"Error extracting text: {exc}"
 
         try:
+            # Clear existing chunks
             existing_chunks = session.exec(select(LawChunk).where(LawChunk.law_id == law_id)).all()
             for chunk in existing_chunks:
                 session.delete(chunk)
 
+            # Simple chunking
             chunks_text = chunk_text(text)
+
             for i, chunk_text_content in enumerate(chunks_text):
+                # get_embedding should be synchronous or we need to await it if it's async
+                # Assuming get_embedding is sync based on imports
                 embedding = get_embedding(chunk_text_content)
                 if not embedding:
                     logger.warning("Empty embedding for chunk %s", i)
@@ -110,8 +111,7 @@ def ingest_law_task(law_id: int):
             return f"Error chunking/embedding: {exc}"
 
 
-@celery.task(name="analyze_country")
-def analyze_country_task(country_id: str):
+def analyze_country_implementation(country_id: str):
     logger.info("Starting analysis for country: %s", country_id)
     with Session(engine) as session:
         country = session.get(Country, country_id)
@@ -122,8 +122,11 @@ def analyze_country_task(country_id: str):
         obligations = session.exec(select(Obligation)).all()
         results = []
 
+        # We can analyze obligations sequentially since we are in a background task
         for obligation in obligations:
             logger.info("Analyzing obligation %s for %s...", obligation.id, country_id)
+
+            # Construct query
             query_text = f"{obligation.normative_content} {obligation.required_domestic_functions}"
             query_embedding = get_embedding(query_text)
 
@@ -132,6 +135,8 @@ def analyze_country_task(country_id: str):
                 continue
 
             try:
+                # Semantic search
+                # Using pgvector l2_distance
                 stmt = (
                     select(LawChunk)
                     .join(Law)
@@ -141,20 +146,25 @@ def analyze_country_task(country_id: str):
                 )
                 retrieved_chunks = session.exec(stmt).all()
 
-                if not retrieved_chunks:
+                chunk_texts = [c.text for c in retrieved_chunks]
+
+                if not chunk_texts:
+                    logger.info("No chunks found for country %s", country_id)
                     analysis_result = {
                         "status": "no",
-                        "score": 0,
+                        "score": 0.0,
                         "confidence": 1.0,
                         "evidence": [],
                         "missing": ["No relevant legal text found in uploaded laws."],
                         "notes": "No matching documents retrieved.",
                     }
                 else:
-                    analysis_result = analyze_obligation(obligation, retrieved_chunks, country=country_id)
+                    # Call LLM service
+                    analysis_result = analyze_obligation(obligation, chunk_texts, country=country.name)
 
                 analysis_result = validate_analysis_payload(analysis_result)
 
+                # Upsert result
                 existing_result = session.exec(
                     select(AnalysisResult)
                     .where(AnalysisResult.country_id == country_id)
@@ -163,28 +173,29 @@ def analyze_country_task(country_id: str):
 
                 if existing_result:
                     existing_result.status = normalize_status(analysis_result.get("status"))
-                    existing_result.score = float(analysis_result.get("score", 0.0) or 0.0)
-                    existing_result.confidence = float(analysis_result.get("confidence", 0.0) or 0.0)
+                    existing_result.score = float(analysis_result.get("score", 0.0))
+                    existing_result.confidence = float(analysis_result.get("confidence", 0.0))
                     existing_result.evidence = analysis_result.get("evidence", [])
+                    # handle different key naming if needed, but assuming model matches
                     existing_result.missing_info = analysis_result.get("missing", [])
                     existing_result.notes = analysis_result.get("notes", "")
                     existing_result.needs_review = bool(analysis_result.get("needs_review", False))
+                    existing_result.updated_at = datetime.utcnow() # Ensure import or ignore if model handles it
                     session.add(existing_result)
                 else:
-                    session.add(
-                        AnalysisResult(
-                            country_id=country_id,
-                            obligation_id=obligation.id,
-                            status=normalize_status(analysis_result.get("status")),
-                            score=float(analysis_result.get("score", 0.0) or 0.0),
-                            confidence=float(analysis_result.get("confidence", 0.0) or 0.0),
-                            evidence=analysis_result.get("evidence", []),
-                            missing_info=analysis_result.get("missing", []),
-                            notes=analysis_result.get("notes", ""),
-                            needs_review=bool(analysis_result.get("needs_review", False)),
-                            is_published=False,
-                        )
+                    new_result = AnalysisResult(
+                        country_id=country_id,
+                        obligation_id=obligation.id,
+                        status=normalize_status(analysis_result.get("status")),
+                        score=float(analysis_result.get("score", 0.0)),
+                        confidence=float(analysis_result.get("confidence", 0.0)),
+                        evidence=analysis_result.get("evidence", []),
+                        missing_info=analysis_result.get("missing", []),
+                        notes=analysis_result.get("notes", ""),
+                        needs_review=bool(analysis_result.get("needs_review", False)),
+                        is_published=False,
                     )
+                    session.add(new_result)
 
                 results.append(obligation.id)
 

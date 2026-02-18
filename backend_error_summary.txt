@@ -1,0 +1,1 @@
+Backend service 'petanquetraining-api' is crashing due to database connection errors (ECONNREFUSED 127.0.0.1:5432). This likely means the DATABASE_URL environment variable is missing.

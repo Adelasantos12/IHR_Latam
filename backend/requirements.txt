@@ -5,8 +5,6 @@ psycopg2-binary
 pgvector
 pypdf
 openai
-celery
-redis
 python-multipart
 requests
 python-dotenv

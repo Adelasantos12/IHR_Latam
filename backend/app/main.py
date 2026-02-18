@@ -5,14 +5,15 @@ import shutil
 from io import StringIO
 from typing import List, Optional
 
-from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from sqlmodel import Session, select
 
 from app.database import engine, get_session, init_db
 from app.models import AnalysisResult, Authority, ComplianceStatus, Country, Law, Obligation
-from app.worker import analyze_country_task, ingest_law_task
+# Import the implementation functions directly, not the Celery tasks
+from app.worker import analyze_country_implementation, ingest_law_implementation
 from app.seed_data import COUNTRIES
 
 app = FastAPI(title="IHR Compliance Analyzer")
@@ -40,7 +41,6 @@ def seed_countries_if_needed() -> None:
         for c in COUNTRIES:
             session.add(Country(id=c["id"], name=c["name"]))
         session.commit()
-
 
 
 @app.get("/")
@@ -88,6 +88,7 @@ def get_obligation_results(obligation_id: str, session: Session = Depends(get_se
 
 @app.post("/laws")
 def upload_law(
+    background_tasks: BackgroundTasks,
     country_id: str = Form(...),
     title: str = Form(...),
     publication_date: Optional[str] = Form(None),
@@ -106,7 +107,9 @@ def upload_law(
 
     upload_dir = "/app/uploads"
     os.makedirs(upload_dir, exist_ok=True)
-    file_path = os.path.join(upload_dir, f"{country_id}_{datetime.utcnow().timestamp()}_{file.filename}")
+    # Sanitize filename to avoid directory traversal
+    safe_filename = os.path.basename(file.filename)
+    file_path = os.path.join(upload_dir, f"{country_id}_{datetime.utcnow().timestamp()}_{safe_filename}")
 
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
@@ -127,16 +130,24 @@ def upload_law(
     session.commit()
     session.refresh(law)
 
-    ingest_law_task.delay(law.id)
+    # Use BackgroundTasks instead of Celery
+    background_tasks.add_task(ingest_law_implementation, law.id)
+
     return {"message": "Law uploaded successfully", "law_id": law.id}
 
 
 @app.post("/analyze/{country_id}")
-def trigger_analysis(country_id: str, session: Session = Depends(get_session)):
+def trigger_analysis(
+    country_id: str,
+    background_tasks: BackgroundTasks,
+    session: Session = Depends(get_session)
+):
     if not session.get(Country, country_id):
         raise HTTPException(status_code=404, detail="Country not found")
 
-    analyze_country_task.delay(country_id)
+    # Use BackgroundTasks instead of Celery
+    background_tasks.add_task(analyze_country_implementation, country_id)
+
     return {"message": "Analysis triggered", "country_id": country_id}
 
 
@@ -144,6 +155,7 @@ def trigger_analysis(country_id: str, session: Session = Depends(get_session)):
 def get_review_queue(threshold: float = 0.7, session: Session = Depends(get_session)):
     rows = session.exec(select(AnalysisResult).where(AnalysisResult.needs_review == True)).all()  # noqa: E712
     dynamic = session.exec(select(AnalysisResult).where(AnalysisResult.confidence < threshold)).all()
+    # Merge and deduplicate
     union = {r.id: r for r in [*rows, *dynamic] if r.id is not None}
     return {"threshold": threshold, "items": list(union.values())}
 
@@ -166,13 +178,13 @@ def update_audit_result(
         normalized = status.strip().lower()
         if normalized == "si":
             result.status = ComplianceStatus.YES
-            result.score = 1
+            result.score = 1.0
         elif normalized == "parcial":
             result.status = ComplianceStatus.PARTIAL
             result.score = 0.5
         elif normalized == "no":
             result.status = ComplianceStatus.NO
-            result.score = 0
+            result.score = 0.0
 
     if confidence is not None:
         result.confidence = confidence
