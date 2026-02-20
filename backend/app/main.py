@@ -9,6 +9,7 @@ from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile, Bac
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from sqlmodel import Session, select
+from sqlalchemy import func
 
 from app.database import engine, get_session, init_db
 from app.models import AnalysisResult, Authority, ComplianceStatus, Country, Law, Obligation
@@ -204,25 +205,41 @@ def update_audit_result(
 
 @app.get("/dashboard/summary")
 def get_dashboard_summary(session: Session = Depends(get_session)):
-    countries = session.exec(select(Country)).all()
-    laws = session.exec(select(Law)).all()
-    results = session.exec(select(AnalysisResult)).all()
+    total_countries = session.exec(select(func.count(Country.id))).one()
+    total_laws = session.exec(select(func.count(Law.id))).one()
+
+    # Aggregate compliance counts by status using GROUP BY
+    compliance_rows = session.exec(
+        select(AnalysisResult.status, func.count(AnalysisResult.id))
+        .group_by(AnalysisResult.status)
+    ).all()
 
     compliance_counts = {"Yes": 0, "Partial": 0, "No": 0, "Unknown": 0}
-    for r in results:
-        label = str(r.status)
-        compliance_counts[label] = compliance_counts.get(label, 0) + 1
+    for status, count in compliance_rows:
+        # Use value if available (cleaner) or string representation
+        key = status.value if hasattr(status, "value") else str(status)
+        compliance_counts[key] = count
 
-    coverage_by_sector = {}
-    for sector in range(1, 11):
-        coverage_by_sector[sector] = len({law.country_id for law in laws if law.sector_id == sector})
+    # Aggregate sector coverage: count unique countries per sector
+    sector_rows = session.exec(
+        select(Law.sector_id, func.count(func.distinct(Law.country_id)))
+        .where(Law.sector_id != None)
+        .group_by(Law.sector_id)
+    ).all()
+
+    coverage_by_sector = {sector: 0 for sector in range(1, 11)}
+    for sector_id, count in sector_rows:
+        if sector_id and sector_id in coverage_by_sector:
+            coverage_by_sector[sector_id] = count
+
+    recent_results = session.exec(select(AnalysisResult).limit(25)).all()
 
     return {
-        "total_countries": len(countries),
-        "total_laws": len(laws),
+        "total_countries": total_countries,
+        "total_laws": total_laws,
         "compliance_counts": compliance_counts,
         "coverage_by_sector": coverage_by_sector,
-        "recent_results": results[:25],
+        "recent_results": recent_results,
     }
 
 
